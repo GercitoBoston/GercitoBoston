@@ -1,0 +1,36 @@
+FROM=CNSBETH
+CARBONCOPY=
+BLINDCARBONCOPY=
+CUSTOMER=CNS
+LOCATION=Bethlehem
+SITEID=CSBETH4
+FILE_PREFIX="SYMBETH4_BI_"
+TIMEZONE=EST
+SYSLOGSERVER=172.17.34.50
+LDAP_PW=
+#control_wireless_scripts
+NAS_LAG=1
+WIRELESS_LOOKBACK_DAYS=-1
+COMPRESS_WIRELESS_MTIME=+10
+DELETE_WIRELESS_MTIME=+120
+DISCO_PROC_BACKTRACE=900
+
+
+# SFTP values
+ID_RSA="/root/.ssh/id_rsa_icinga"
+REMOTE_SFTP_DIR="/beth4/inbound"
+REMOTE_SFTP_HOST="mft.cswg.com"
+#REMOTE_SFTP_HOST="chi0.jaw4.com"
+REMOTE_SFTP_USERNAME="symBeth4"
+
+# Log Directory Locations/
+SRE_NAS_BASE="/mnt/nas/SRE01"
+SRE_BASE="/mnt/sre01"
+#Structure variables
+AISLES=80
+DECKEDGE=4800
+
+# control_wireless_scripts
+DELETE_WIRELESS_MTIME="+90" #parameter after find...-mtime
+COMPRESS_WIRELESS_MTIME="+5" #parameter after find...-mtime
+WIRELESS_CONTROLLER_TYPE="Aruba7210"
