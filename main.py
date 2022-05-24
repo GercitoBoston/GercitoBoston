@@ -129,15 +129,25 @@ def CheckApUsage():
     print(sqlQuery("SELECT * FROM RssiLogEntryDf"))
 
 
+def createCsvFile(param, botDF):
+    sortedDf = param.sort_values(by=["InterestingEventTime"])
+    filePath = botDF + ".csv"
+    if os.path.exists(filePath):
+        os.remove(filePath)
+    sortedDf.to_csv(filePath, encoding='utf-8')
+
+
 def DiscoReport():
     # today_date = datetime.date.today()
     today_date = datetime.datetime(2022, 4, 30)
     yesterday = today_date - timedelta(days=1)
     yesterday_prefix = yesterday.strftime("%Y-%m-%d")
     socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix + "/")
+    # socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + "QuickTest" + "/")
     botHeartsDictionary ={}
     dfColumns = ["InterestingEventTime", "EventDescription", "currentThreadID", "BotNumber"]
     heartbeatDf = pd.DataFrame(columns=["InterestingEventTime", "EventDescription", "currentThreadID", "BotNumber"])
+    botOnHand = 0
     for filename in os.listdir(socketErrorDirectoryPath):
         currentFile = os.path.join(socketErrorDirectoryPath, filename)
         if os.path.isfile(currentFile):
@@ -147,31 +157,32 @@ def DiscoReport():
                 with open(currentFile, "r") as inputFile:
                     for currentLine in inputFile:
                         dataInRecord = currentLine.split()
-                        dynamicDf = ("Bot" + str(dataInRecord[14]))
+                        if dataInRecord[8] == "Rover":
+                            botOnHand = dataInRecord[9]
+                            size = len(dataInRecord)
+                            seed = 11;
+                        else:
+                            botOnHand = dataInRecord[14]
+                            size = len(dataInRecord)
+                            seed = 22;
+                        dynamicDf = ("Bot" + str(botOnHand))
                         thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
                         eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
                         description = ""
-                        size = len(dataInRecord)
-                        seed = 22;
                         while seed < size:
                             description = description + " " + dataInRecord[seed]
                             seed += 1
                         currentThread = (dataInRecord[4])[:-1]
-                        if ("Bot" + dataInRecord[14]) not in botHeartsDictionary:
+                        if ("Bot" + botOnHand) not in botHeartsDictionary:
                             newDic = {"InterestingEventTime":[eventTime], "EventDescription":[description],
-                                      "currentThreadID":[currentThread], "BotNumber":[dataInRecord[14]]}
+                                      "currentThreadID":[currentThread], "BotNumber":[botOnHand]}
                             botHeartsDictionary[dynamicDf] = pd.DataFrame(newDic)
                         else:
                             (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
-                                [eventTime, description, currentThread, dataInRecord[14]]
-                        print("Event found for %d Bot - AP correlation %s AP seen events %s" % (dataInRecord[14],
-                                                                                                description), end="\r")
-
-
-
-
-
-
+                                [eventTime, description, currentThread, botOnHand]
+                        print("Event found for " + botOnHand + " i.e. " + description, end="\r")
+    for botDF in botHeartsDictionary:
+        createCsvFile(botHeartsDictionary.get(botDF), botDF)
 
 
 def ParseTime(logInstanceListData):
