@@ -3,6 +3,7 @@ import subprocess
 import pandas as pd
 import gzip
 import datetime
+import pathlib
 import re
 from datetime import timedelta
 from pathlib import Path
@@ -133,9 +134,43 @@ def DiscoReport():
     today_date = datetime.datetime(2022, 4, 30)
     yesterday = today_date - timedelta(days=1)
     yesterday_prefix = yesterday.strftime("%Y-%m-%d")
-    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/" + yesterday_prefix + "/")
-    filesForYesterday = [thisFile for thisFile in listdir(socketErrorDirectoryPath)
-                         if isfile(join(socketErrorDirectoryPath, thisFile))]
+    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix + "/")
+    botHeartsDictionary ={}
+    dfColumns = ["InterestingEventTime", "EventDescription", "currentThreadID", "BotNumber"]
+    heartbeatDf = pd.DataFrame(columns=["InterestingEventTime", "EventDescription", "currentThreadID", "BotNumber"])
+    for filename in os.listdir(socketErrorDirectoryPath):
+        currentFile = os.path.join(socketErrorDirectoryPath, filename)
+        if os.path.isfile(currentFile):
+            baseFileName = os.path.basename(currentFile)
+            fileExtension = pathlib.Path(baseFileName).suffix
+            if "Client.Engine_" in baseFileName:
+                with open(currentFile, "r") as inputFile:
+                    for currentLine in inputFile:
+                        dataInRecord = currentLine.split()
+                        dynamicDf = ("Bot" + str(dataInRecord[14]))
+                        thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                        eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                        description = ""
+                        size = len(dataInRecord)
+                        seed = 22;
+                        while seed < size:
+                            description = description + " " + dataInRecord[seed]
+                            seed += 1
+                        currentThread = (dataInRecord[4])[:-1]
+                        if ("Bot" + dataInRecord[14]) not in botHeartsDictionary:
+                            newDic = {"InterestingEventTime":[eventTime], "EventDescription":[description],
+                                      "currentThreadID":[currentThread], "BotNumber":[dataInRecord[14]]}
+                            botHeartsDictionary[dynamicDf] = pd.DataFrame(newDic)
+                        else:
+                            (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
+                                [eventTime, description, currentThread, dataInRecord[14]]
+                        print("Event found for %d Bot - AP correlation %s AP seen events %s" % (dataInRecord[14],
+                                                                                                description), end="\r")
+
+
+
+
+
 
 
 
