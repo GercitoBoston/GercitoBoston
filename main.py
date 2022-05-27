@@ -153,36 +153,96 @@ def DiscoReport():
         if os.path.isfile(currentFile):
             baseFileName = os.path.basename(currentFile)
             fileExtension = pathlib.Path(baseFileName).suffix
-            if "Client.Engine_" in baseFileName:
-                with open(currentFile, "r") as inputFile:
-                    for currentLine in inputFile:
-                        dataInRecord = currentLine.split()
-                        if dataInRecord[8] == "Rover":
-                            botOnHand = dataInRecord[9]
-                            size = len(dataInRecord)
-                            seed = 11;
-                        else:
-                            botOnHand = dataInRecord[14]
-                            size = len(dataInRecord)
-                            seed = 22;
-                        dynamicDf = ("Bot" + str(botOnHand))
-                        thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
-                        eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
-                        description = ""
-                        while seed < size:
-                            description = description + " " + dataInRecord[seed]
-                            seed += 1
-                        currentThread = (dataInRecord[4])[:-1]
-                        if ("Bot" + botOnHand) not in botHeartsDictionary:
-                            newDic = {"InterestingEventTime":[eventTime], "EventDescription":[description],
-                                      "currentThreadID":[currentThread], "BotNumber":[botOnHand]}
-                            botHeartsDictionary[dynamicDf] = pd.DataFrame(newDic)
-                        else:
-                            (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
-                                [eventTime, description, currentThread, botOnHand]
-                        print("Event found for " + botOnHand + " i.e. " + description, end="\r")
+           # if "Client.Engine_" in baseFileName and fileExtension != ".txt":
+           #     BotHeartHealth(botHeartsDictionary, currentFile)
+            if "Rover" in baseFileName and "Comms" in baseFileName and fileExtension == ".txt":
+                SocketErrors(botHeartsDictionary, currentFile)
+
     for botDF in botHeartsDictionary:
         createCsvFile(botHeartsDictionary.get(botDF), botDF)
+
+
+def BotHeartHealth(botHeartsDictionary, currentFile):
+    with open(currentFile, "r") as inputFile:
+        for currentLine in inputFile:
+            dataInRecord = currentLine.split()
+            if dataInRecord[8] == "Rover":
+                botOnHand = dataInRecord[9]
+                size = len(dataInRecord)
+                seed = 11;
+            else:
+                botOnHand = dataInRecord[14]
+                size = len(dataInRecord)
+                seed = 22;
+            dynamicDf = ("Bot" + str(botOnHand))
+            thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+            eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+            description = ""
+            while seed < size:
+                description = description + " " + dataInRecord[seed]
+                seed += 1
+            currentThread = (dataInRecord[4])[:-1]
+            if ("Bot" + botOnHand) not in botHeartsDictionary:
+                newDic = {"InterestingEventTime": [eventTime], "EventDescription": [description],
+                          "currentThreadID": [currentThread], "BotNumber": [botOnHand]}
+                botHeartsDictionary[dynamicDf] = pd.DataFrame(newDic)
+            else:
+                (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
+                    [eventTime, description, currentThread, botOnHand]
+            print("Event found for " + botOnHand + " i.e. " + description, end="\r")
+
+
+def SocketErrors(botHeartsDictionary, currentFile):
+    suspiciousEventsFound = 0
+    with open(currentFile, "r") as inputFile:
+        eventsBetween = 0
+        for currentLine in inputFile:
+            if "OnReceive SocketError" in currentLine:
+                eventsBetween += 1
+                suspiciousEventsFound += 1
+                dataInRecord = currentLine.split()
+                thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                startTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                disconnectThread = (dataInRecord[4])[:-1]
+                logType = dataInRecord[6]
+                affectedBot = (dataInRecord[8])[1:-1]
+                dynamicDfName = "SocketErrorFor" + affectedBot
+                typeOfError = dataInRecord[15]
+            elif "Connecting -> Connected : Established" in currentLine:
+                dataInRecord = currentLine.split()
+                thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                endTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                reconnectThread = (dataInRecord[4])[:-1]
+                lenOfDisco = endTime - startTime
+                totalSeconds = lenOfDisco.total_seconds()
+                if totalSeconds < 5:
+                    discoType = "Connecting"
+                elif 5 <= totalSeconds <= 20:
+                    discoType = "Flicket"
+                elif 20 < totalSeconds <= 60:
+                    discoType = "Flicker"
+                elif 60 < totalSeconds <= 120:
+                    discoType = "disconnect"
+                elif totalSeconds > 120:
+                    discoType = "restart"
+                else:
+                    discoType = "indeterminate"
+                if "BotSocketErrors" not in botHeartsDictionary:
+                    newDic = {"AffectedBot": [affectedBot], "StartTime": [startTime],
+                              "DisconnectThread": [disconnectThread], "LogType": [logType],
+                              "TypeOfError": [typeOfError], "EndTime": [endTime], "ReconnectThread": [reconnectThread],
+                              "LenOfDisco": [totalSeconds], "DiscoType": [discoType], "EventsBetween": eventsBetween}
+                    botHeartsDictionary["BotSocketErrors"] = pd.DataFrame(newDic)
+                else:
+                    (botHeartsDictionary["BotSocketErrors"]).loc[len((botHeartsDictionary["BotSocketErrors"]).index)] \
+                        = [affectedBot, startTime, disconnectThread, logType, typeOfError, endTime, reconnectThread,
+                           totalSeconds, discoType, eventsBetween]
+                print("disco found for " + affectedBot + " i.e. " + discoType + " with " + str(eventsBetween)
+                      + " events Between", end="\r")
+                eventsBetween = 0
+            else:
+                if eventsBetween > 0:
+                    eventsBetween += 1
 
 
 def ParseTime(logInstanceListData):
