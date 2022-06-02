@@ -141,7 +141,8 @@ def DiscoReport():
     today_date = datetime.datetime(2022, 4, 30)
     yesterday = today_date - timedelta(days=1)
     yesterday_prefix = yesterday.strftime("%Y-%m-%d")
-    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix + "/")
+    # socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix + "/")
+    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/JustForTesting/")
     botHeartsDictionary ={}
     for filename in os.listdir(socketErrorDirectoryPath):
         currentFile = os.path.join(socketErrorDirectoryPath, filename)
@@ -161,8 +162,12 @@ def BotHeartHealth(botHeartsDictionary, currentFile):
     pulse = 2
     health = "Healthy"
     lastHealthyMoment = datetime.datetime.now()
+    numberOfLines = sum(1 for i in open(currentFile, 'rb'))
+    baseFileName = os.path.basename(currentFile)
+    currentLineNo = 0
     with open(currentFile, "r") as inputFile:
         for currentLine in inputFile:
+            currentLineNo += 1
             dataInRecord = currentLine.split()
             if dataInRecord[8] == "Rover":
                 botOnHand = dataInRecord[9]
@@ -196,23 +201,42 @@ def BotHeartHealth(botHeartsDictionary, currentFile):
                         description = description + " " + dataInRecord[seed]
                         seed += 1
                     health = "arrhythmia"
-                    lastHealthyMoment = eventTime
+                    lastHealthyMoment = (botHeartsDictionary[dynamicDf])['LastHealthyMoment'].iloc[-1]
                     (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
-                        [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
+                        [lastHealthyMoment, eventTime, description, currentThread, botOnHand, rhythmTime, health]
                 elif currentPulse < rhythmTime:
-                    health = "tachycardia"
-                    description = ""
-                    while seed < size:
-                        description = description + " " + dataInRecord[seed]
-                        seed += 1
-                    lastHealthyMoment = eventTime
-                    (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
-                        [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
+                    lastHealth = (botHeartsDictionary[dynamicDf])['Health'].iloc[-1]
+                    if lastHealth == "tachycardia":
+                        lastIndex = (len((botHeartsDictionary[dynamicDf]).index)) - 1
+                        (botHeartsDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
+                    else:
+                        health = "tachycardia"
+                        description = ""
+                        while seed < size:
+                            description = description + " " + dataInRecord[seed]
+                            seed += 1
+                        lastHealthyMoment = eventTime
+                        (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
+                            [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
                 else:
-                    lastIndex = len((botHeartsDictionary[dynamicDf]).index)
-                    (botHeartsDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
-            print("Event found for " + botOnHand + " i.e. " + description, end="\r")
-    botHeartsDictionary[dynamicDf] = dynamicDf.sort_values(by=["InterestingEventTime"])
+                    lastIndex = (len((botHeartsDictionary[dynamicDf]).index)) - 1
+                    lastHealth = (botHeartsDictionary[dynamicDf])['Health'].iloc[-1]
+                    if lastHealth != "healthy":
+                        health = "healthy"
+                        description = ""
+                        while seed < size:
+                            description = description + " " + dataInRecord[seed]
+                            seed += 1
+                        lastHealthyMoment = eventTime
+                        (botHeartsDictionary[dynamicDf]).loc[len((botHeartsDictionary[dynamicDf]).index)] = \
+                            [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
+                    else:
+                        (botHeartsDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
+                        (botHeartsDictionary[dynamicDf]).at[lastIndex, "Health"] = "healthy"
+            percentage = str((currentLineNo * 100) / numberOfLines)
+            print("processing " + percentage + " % Event found for " + botOnHand +
+                  " i.e. " + description, end="\r")
+    botHeartsDictionary[dynamicDf] = (botHeartsDictionary[dynamicDf]).sort_values(by=["InterestingEventTime"])
 
 
 def SocketErrors(botHeartsDictionary, currentFile):

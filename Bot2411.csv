@@ -1,0 +1,7 @@
+,InterestingEventTime,LastHealthyMoment,EventDescription,currentThreadID,BotNumber,RhythmTime,Health
+0,2022-04-29 00:00:01.381400,2022-04-29 00:00:01.381400, Dynamic Status,38,2411,2,tachycardia
+1,2022-04-29 00:00:03.380600,2022-04-29 00:01:39.484300, Dynamic Status,38,2411,2,healthy
+2,2022-04-29 00:01:40.654400,2022-04-29 00:01:41.494500, Event : Alert ActionId:0 Text:Odometer_m:0,38,2411,2,tachycardia
+3,2022-04-29 00:01:43.484700,2022-04-29 01:01:40.831300, Dynamic Status,38,2411,2,healthy
+4,2022-04-29 01:01:41.062400,2022-04-29 01:01:41.292400, Event : Alert ActionId:0 Text:TurnCount:0,38,2411,2,tachycardia
+5,2022-04-29 01:01:43.171600,2022-04-29 01:57:52.689500, Dynamic Status,38,2411,2,healthy
