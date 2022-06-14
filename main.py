@@ -13,6 +13,8 @@ import numpy as np
 import time
 import threading
 import re
+from flask import Flask
+from flask_restful import Resource, Api, reqparse
 from datetime import timedelta
 from pathlib import Path
 from IPython.display import display
@@ -21,10 +23,17 @@ from os import listdir
 from os.path import isfile, join
 from pandasql import sqldf
 
+from Classes.ConnectionMatrix import ConnectionMatrix
+
 logger_format = '%(asctime)s:%(threadName)s:%(message)s'
 logging.basicConfig(format=logger_format, level=logging.INFO, datefmt="%H:%M:%S")
 manager = enlighten.get_manager()
 progressDictionary = {}
+global filesDic
+app = Flask(__name__)
+api = Api(app)
+
+
 
 menu_options = {
     1: 'Get AP-BOT connection Matrix',
@@ -158,10 +167,11 @@ def DiscoReport():
     botHeartsDictionary = {}
     filesDic = {}
     with cf.ProcessPoolExecutor() as executor:
-        filesDic[filename] = [executor.submit(LoadEngineLogs, filename, filesDic, socketErrorDirectoryPath) 
-        for filename in os.listdir(socketErrorDirectoryPath)]
-    for dic in filesDic[filename]:
-        otro = dic.get()
+        cosa = [executor.submit(LoadEngineLogs, filenameParallel, filesDic, socketErrorDirectoryPath) for
+                filenameParallel in os.listdir(socketErrorDirectoryPath)]
+        cosa2 = cosa[0].result()
+    for dic in filesDic:
+        otro = dic.result()
         dataFR = filesDic.get(dic)
         for botDic in filesDic.get(dic):
             oraDf = dataFR.get(botDic)
@@ -203,139 +213,145 @@ def BotHeartHealth(currentFile):
     fileExtension = pathlib.Path(baseFileName).suffix
     # progressDictionary[baseFileName] = manager.counter(total=numberOfLines, desc="File " + fileExtension, unit="ticks",
     #                                                   color="red")
-    with open(currentFile, "r") as inputFile:
-        for currentLine in inputFile:
-            currentLineNo += 1
-            dataInRecord = currentLine.split()
-            if dataInRecord[8] == "Rover":
-                botOnHand = dataInRecord[9]
-            else:
-                botOnHand = dataInRecord[14]
-            dynamicDf = ("Bot" + str(botOnHand))
-            if dynamicDf not in multyThreadDictionary:
+    try:
+        with open(currentFile, "r") as inputFile:
+            for currentLine in inputFile:
+                currentLineNo += 1
+                dataInRecord = currentLine.split()
                 if dataInRecord[8] == "Rover":
                     botOnHand = dataInRecord[9]
-                    size = len(dataInRecord)
-                    seed = 11
                 else:
-                    size = len(dataInRecord)
-                    seed = 22
-                thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
-                eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
-                currentThread = (dataInRecord[4])[:-1]
-                while seed < size:
-                    description = description + " " + dataInRecord[seed]
-                    seed += 1
-                lastHealthyMoment = eventTime
-                health = "healthy"
-                newDic = {"EventTime": [eventTime], "LastHealthyMoment": lastHealthyMoment,
-                          "EventDescription": [description], "currentThreadID": [currentThread],
-                          "BotNumber": [botOnHand], "RhythmTime": [rhythmTime], "Health": [health]}
-                multyThreadDictionary[dynamicDf] = pd.DataFrame(newDic)
-            else:
-                lastHealthyMoment = (multyThreadDictionary[dynamicDf])['LastHealthyMoment'].iloc[-1]
-                currentPulse = round((eventTime - lastHealthyMoment).total_seconds())
-                if currentPulse > rhythmTime:
-                    description = ""
+                    botOnHand = dataInRecord[14]
+                dynamicDf = ("Bot" + str(botOnHand))
+                if dynamicDf not in multyThreadDictionary:
+                    if dataInRecord[8] == "Rover":
+                        botOnHand = dataInRecord[9]
+                        size = len(dataInRecord)
+                        seed = 11
+                    else:
+                        size = len(dataInRecord)
+                        seed = 22
+                    thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                    eventTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                    currentThread = (dataInRecord[4])[:-1]
                     while seed < size:
                         description = description + " " + dataInRecord[seed]
                         seed += 1
-                    health = "arrhythmia"
+                    lastHealthyMoment = eventTime
+                    health = "healthy"
+                    newDic = {"EventTime": [eventTime], "LastHealthyMoment": lastHealthyMoment,
+                            "EventDescription": [description], "currentThreadID": [currentThread],
+                            "BotNumber": [botOnHand], "RhythmTime": [rhythmTime], "Health": [health]}
+                    multyThreadDictionary[dynamicDf] = pd.DataFrame(newDic)
+                else:
                     lastHealthyMoment = (multyThreadDictionary[dynamicDf])['LastHealthyMoment'].iloc[-1]
-                    (multyThreadDictionary[dynamicDf]).loc[len((multyThreadDictionary[dynamicDf]).index)] = \
-                        [lastHealthyMoment, eventTime, description, currentThread, botOnHand, rhythmTime, health]
-                elif currentPulse <= rhythmTime:
-                    lastHealth = (multyThreadDictionary[dynamicDf])['Health'].iloc[-1]
-                    if lastHealth == "healthy":
-                        lastIndex = (len((multyThreadDictionary[dynamicDf]).index)) - 1
-                        (multyThreadDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
-                    else:
-                        health = "healthy"
+                    currentPulse = round((eventTime - lastHealthyMoment).total_seconds())
+                    if currentPulse > rhythmTime:
                         description = ""
                         while seed < size:
                             description = description + " " + dataInRecord[seed]
                             seed += 1
-                        lastHealthyMoment = eventTime
+                        health = "arrhythmia"
+                        lastHealthyMoment = (multyThreadDictionary[dynamicDf])['LastHealthyMoment'].iloc[-1]
                         (multyThreadDictionary[dynamicDf]).loc[len((multyThreadDictionary[dynamicDf]).index)] = \
-                            [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
-                # else:
-                #     lastIndex = (len((multyThreadDictionary[dynamicDf]).index)) - 1
-                #     lastHealth = (multyThreadDictionary[dynamicDf])['Health'].iloc[-1]
-                #     if lastHealth != "healthy":
-                #         health = "healthy"
-                #         description = ""
-                #         while seed < size:
-                #             description = description + " " + dataInRecord[seed]
-                #             seed += 1
-                #         lastHealthyMoment = eventTime
-                #         (multyThreadDictionary[dynamicDf]).loc[len((multyThreadDictionary[dynamicDf]).index)] = \
-                #             [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
-                #     else:
-                #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
-                #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "Health"] = "healthy"
-            percentage = str(round((currentLineNo * 100) / numberOfLines))
-            print("complite file " + fileExtension + " " + percentage + "%\n")
-            # (progressDictionary[baseFileName]).update()
+                            [lastHealthyMoment, eventTime, description, currentThread, botOnHand, rhythmTime, health]
+                    elif currentPulse <= rhythmTime:
+                        lastHealth = (multyThreadDictionary[dynamicDf])['Health'].iloc[-1]
+                        if lastHealth == "healthy":
+                            lastIndex = (len((multyThreadDictionary[dynamicDf]).index)) - 1
+                            (multyThreadDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
+                        else:
+                            health = "healthy"
+                            description = ""
+                            while seed < size:
+                                description = description + " " + dataInRecord[seed]
+                                seed += 1
+                            lastHealthyMoment = eventTime
+                            (multyThreadDictionary[dynamicDf]).loc[len((multyThreadDictionary[dynamicDf]).index)] = \
+                                [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
+                    # else:
+                    #     lastIndex = (len((multyThreadDictionary[dynamicDf]).index)) - 1
+                    #     lastHealth = (multyThreadDictionary[dynamicDf])['Health'].iloc[-1]
+                    #     if lastHealth != "healthy":
+                    #         health = "healthy"
+                    #         description = ""
+                    #         while seed < size:
+                    #             description = description + " " + dataInRecord[seed]
+                    #             seed += 1
+                    #         lastHealthyMoment = eventTime
+                    #         (multyThreadDictionary[dynamicDf]).loc[len((multyThreadDictionary[dynamicDf]).index)] = \
+                    #             [eventTime, lastHealthyMoment, description, currentThread, botOnHand, rhythmTime, health]
+                    #     else:
+                    #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
+                    #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "Health"] = "healthy"
+                percentage = str(round((currentLineNo * 100) / numberOfLines))
+                print("complite file " + fileExtension + " " + percentage + "%\n")
+                # (progressDictionary[baseFileName]).update()
+    except Exception as e:
+        print(e)
     # manager.stop()
-    print("complite file " + fileExtension + "\n")
-    return multyThreadDictionary
+    # print("complite file " + fileExtension + "\n")
+    return  multyThreadDictionary
 
 
 def SocketErrors(currentFile):
     multyThreadDictionary = {}
     suspiciousEventsFound = 0
     socketErrorFound = 0
-    with open(currentFile, "r") as inputFile:
-        eventsBetween = 0
-        for currentLine in inputFile:
-            if "OnReceive SocketError" in currentLine:
-                socketErrorFound = 1
-                eventsBetween += 1
-                suspiciousEventsFound += 1
-                dataInRecord = currentLine.split()
-                thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
-                startTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
-                disconnectThread = (dataInRecord[4])[:-1]
-                logType = dataInRecord[6]
-                affectedBot = (dataInRecord[8])[1:-1]
-                dynamicDfName = "SocketErrorFor" + affectedBot
-                typeOfError = dataInRecord[15]
-            elif "Connecting -> Connected : Established" in currentLine:
-                dataInRecord = currentLine.split()
-                thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
-                endTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
-                reconnectThread = (dataInRecord[4])[:-1]
-                if socketErrorFound:
-                    lenOfDisco = endTime - startTime
-                    totalSeconds = lenOfDisco.total_seconds()
-                    if totalSeconds < 5:
-                        discoType = "Connecting"
-                    elif 5 <= totalSeconds <= 20:
-                        discoType = "Flicket"
-                    elif 20 < totalSeconds <= 60:
-                        discoType = "Flicker"
-                    elif 60 < totalSeconds <= 120:
-                        discoType = "disconnect"
-                    elif totalSeconds > 120:
-                        discoType = "restart"
-                    else:
-                        discoType = "indeterminate"
-                else:
-                    totalSeconds = 0
-                    discoType = "Orphan Connection Established"
-                    affectedBot = (dataInRecord[8])[1:-1]
-                    startTime = endTime
-                    disconnectThread = reconnectThread
-                    logType = dataInRecord[6]
-                    typeOfError = "none"
-                LoadDf(affectedBot, multyThreadDictionary, discoType, disconnectThread, endTime, eventsBetween, logType,
-                       reconnectThread, startTime, totalSeconds, typeOfError)
-                # print("disco found for " + affectedBot, end="\r")
-                eventsBetween = 0
-                socketErrorFound = 0
-            else:
-                if eventsBetween > 0:
+    try:
+        with open(currentFile, "r") as inputFile:
+            eventsBetween = 0
+            for currentLine in inputFile:
+                if "OnReceive SocketError" in currentLine:
+                    socketErrorFound = 1
                     eventsBetween += 1
+                    suspiciousEventsFound += 1
+                    dataInRecord = currentLine.split()
+                    thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                    startTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                    disconnectThread = (dataInRecord[4])[:-1]
+                    logType = dataInRecord[6]
+                    affectedBot = (dataInRecord[8])[1:-1]
+                    dynamicDfName = "SocketErrorFor" + affectedBot
+                    typeOfError = dataInRecord[15]
+                elif "Connecting -> Connected : Established" in currentLine:
+                    dataInRecord = currentLine.split()
+                    thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                    endTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                    reconnectThread = (dataInRecord[4])[:-1]
+                    if socketErrorFound:
+                        lenOfDisco = endTime - startTime
+                        totalSeconds = lenOfDisco.total_seconds()
+                        if totalSeconds < 5:
+                            discoType = "Connecting"
+                        elif 5 <= totalSeconds <= 20:
+                            discoType = "Flicket"
+                        elif 20 < totalSeconds <= 60:
+                            discoType = "Flicker"
+                        elif 60 < totalSeconds <= 120:
+                            discoType = "disconnect"
+                        elif totalSeconds > 120:
+                            discoType = "restart"
+                        else:
+                            discoType = "indeterminate"
+                    else:
+                        totalSeconds = 0
+                        discoType = "Orphan Connection Established"
+                        affectedBot = (dataInRecord[8])[1:-1]
+                        startTime = endTime
+                        disconnectThread = reconnectThread
+                        logType = dataInRecord[6]
+                        typeOfError = "none"
+                    LoadDf(affectedBot, multyThreadDictionary, discoType, disconnectThread, endTime, eventsBetween, logType,
+                        reconnectThread, startTime, totalSeconds, typeOfError)
+                    # print("disco found for " + affectedBot, end="\r")
+                    eventsBetween = 0
+                    socketErrorFound = 0
+                else:
+                    if eventsBetween > 0:
+                        eventsBetween += 1
+    except Exception as e:
+        print(e)
     if socketErrorFound:
         endTime = startTime
         eventsBetween = 0
@@ -411,6 +427,7 @@ def GetBotBrgSafInventory():
 
 if __name__ == '__main__':
     while True:
+        # app.run()  # run our Flask app
         print_menu()
         option = ''
         try:
