@@ -162,18 +162,19 @@ def DiscoReport():
     today_date = datetime.datetime(2022, 4, 30)
     yesterday = today_date - timedelta(days=1)
     yesterday_prefix = yesterday.strftime("%Y-%m-%d")
-    # socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix)
-    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/JustForTesting")
+    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix)
+    # socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/JustForTesting")
     botHeartsDictionary = {}
-    filesDic = {}
+    filesJobsDic = {}
     with cf.ProcessPoolExecutor() as executor:
-        cosa = [executor.submit(LoadEngineLogs, filenameParallel, filesDic, socketErrorDirectoryPath) for
-                filenameParallel in os.listdir(socketErrorDirectoryPath)]
-        cosa2 = cosa[0].result()
-    for dic in filesDic:
-        otro = dic.result()
-        dataFR = filesDic.get(dic)
-        for botDic in filesDic.get(dic):
+        for filenameParallel in os.listdir(socketErrorDirectoryPath):
+            currentFileBaseName = os.path.basename(filenameParallel)
+            filesJobsDic[currentFileBaseName] = executor.submit(LoadEngineLogs, filenameParallel, socketErrorDirectoryPath) 
+    for dic in filesJobsDic:
+        cosa = filesJobsDic.get(dic)
+        cosa2 = cosa.result()
+        dataFR = cosa2.get(dic)
+        for botDic in dataFR:
             oraDf = dataFR.get(botDic)
             if botDic in botHeartsDictionary.keys():
                 botHeartsDictionary[botDic] = pd.concat([botHeartsDictionary.get(botDic), oraDf],
@@ -182,11 +183,12 @@ def DiscoReport():
                 botHeartsDictionary[botDic] = oraDf
     for botDF in botHeartsDictionary:
         botToSort = botHeartsDictionary.get(botDF)
-        sortedBot = botToSort.sort_values(by=["StartTime"])
+        sortedBot = botToSort.sort_values(by=["EventTime"])
         createCsvFile(sortedBot, botDF)
 
 
-def LoadEngineLogs(filename, filesDic, socketErrorDirectoryPath):
+def LoadEngineLogs(filename, socketErrorDirectoryPath):
+    filesDic = {}
     currentFile = os.path.join(socketErrorDirectoryPath, filename)
     if os.path.isfile(currentFile):
         baseFileName = os.path.basename(currentFile)
