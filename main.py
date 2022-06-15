@@ -174,13 +174,16 @@ def DiscoReport():
         cosa = filesJobsDic.get(dic)
         cosa2 = cosa.result()
         dataFR = cosa2.get(dic)
-        for botDic in dataFR:
-            oraDf = dataFR.get(botDic)
-            if botDic in botHeartsDictionary.keys():
-                botHeartsDictionary[botDic] = pd.concat([botHeartsDictionary.get(botDic), oraDf],
-                                                        ignore_index=True)
-            else:
-                botHeartsDictionary[botDic] = oraDf
+        try:
+            for botDic in dataFR:
+                oraDf = dataFR.get(botDic)
+                if botDic in botHeartsDictionary.keys():
+                    botHeartsDictionary[botDic] = pd.concat([botHeartsDictionary.get(botDic), oraDf],
+                                                            ignore_index=True)
+                else:
+                    botHeartsDictionary[botDic] = oraDf
+        except Exception as e:
+            print(e)
     for botDF in botHeartsDictionary:
         botToSort = botHeartsDictionary.get(botDF)
         sortedBot = botToSort.sort_values(by=["EventTime"])
@@ -197,8 +200,8 @@ def LoadEngineLogs(filename, socketErrorDirectoryPath):
             print("processing file ",fileExtension)
             filesDic[baseFileName] = BotHeartHealth(currentFile)
 
-        if "Rover" in baseFileName and "Comms" in baseFileName and fileExtension == ".txt":
-            filesDic[baseFileName] = SocketErrors(currentFile)
+        # if "Rover" in baseFileName and "Comms" in baseFileName and fileExtension == ".txt":
+        #     filesDic[baseFileName] = SocketErrors(currentFile)
     return filesDic
 
 
