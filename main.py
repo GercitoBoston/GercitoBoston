@@ -169,7 +169,9 @@ def DiscoReport():
     with cf.ProcessPoolExecutor() as executor:
         for filenameParallel in os.listdir(socketErrorDirectoryPath):
             currentFileBaseName = os.path.basename(filenameParallel)
-            filesJobsDic[currentFileBaseName] = executor.submit(LoadEngineLogs, filenameParallel, socketErrorDirectoryPath) 
+            fileExtension = pathlib.Path(filenameParallel).suffix
+            if "Client.Engine_" in currentFileBaseName and fileExtension != ".txt":
+                filesJobsDic[currentFileBaseName] = executor.submit(LoadEngineLogs, filenameParallel, socketErrorDirectoryPath) 
     for dic in filesJobsDic:
         cosa = filesJobsDic.get(dic)
         cosa2 = cosa.result()
@@ -216,8 +218,7 @@ def BotHeartHealth(currentFile):
     baseFileName = os.path.basename(currentFile)
     currentLineNo = 0
     fileExtension = pathlib.Path(baseFileName).suffix
-    # progressDictionary[baseFileName] = manager.counter(total=numberOfLines, desc="File " + fileExtension, unit="ticks",
-    #                                                   color="red")
+    progressDictionary[baseFileName] = manager.counter(total=numberOfLines, desc="File " + fileExtension, unit="ticks", color="red")
     try:
         with open(currentFile, "r") as inputFile:
             for currentLine in inputFile:
@@ -289,13 +290,13 @@ def BotHeartHealth(currentFile):
                     #     else:
                     #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "LastHealthyMoment"] = eventTime
                     #         (multyThreadDictionary[dynamicDf]).at[lastIndex, "Health"] = "healthy"
-                percentage = str(round((currentLineNo * 100) / numberOfLines))
-                print("complite file " + fileExtension + " " + percentage + "%\n")
-                # (progressDictionary[baseFileName]).update()
+                # percentage = str(round((currentLineNo * 100) / numberOfLines))
+                # print("complite file " + fileExtension + " " + percentage + "%\n")
+                (progressDictionary[baseFileName]).update()
     except Exception as e:
         print(e)
-    # manager.stop()
-    # print("complite file " + fileExtension + "\n")
+    print("complite file " + fileExtension + "\n")
+    manager.stop()
     return  multyThreadDictionary
 
 
