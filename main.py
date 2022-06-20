@@ -13,6 +13,7 @@ import numpy as np
 import time
 import threading
 import re
+import linecache
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from datetime import timedelta
@@ -22,6 +23,7 @@ from os import system
 from os import listdir
 from os.path import isfile, join
 from pandasql import sqldf
+from sqlalchemy import true
 
 from Classes.ConnectionMatrix import ConnectionMatrix
 
@@ -47,58 +49,77 @@ menu_options = {
 }
 
 
-# define our clear function
-def clear():
-    # for windows
-    if name == 'nt':
-        _ = system('cls')
-
-    # for mac and linux(here, os.name is 'posix')
-    else:
-        _ = system('clear')
 
 
 def GetApBotConnectionMatrix():
-    global name
     # today_date = datetime.date.today()
     today_date = datetime.datetime(2022, 4, 30)
     yesterday = today_date - timedelta(days=1)
     yesterday_prefix = yesterday.strftime("%Y%m%d")
+    master_wireless_path = Path("/logs/wireless/" + yesterday_prefix + "/master_wireless.log.gz")
     eventsFound = 0
     apSeenEvent = 0
     currentRecordNo = 0
-    name = ""
-    master_wireless_path = Path("/logs/wireless/" + yesterday_prefix + "/master_wireless.log.gz")
-    a_file = gzip.open(master_wireless_path)
+    linesJobsDic = {}
+    startLine = 1
+    nextLine = 1000000
+    groupOFLinesDf = pd.DataFrame(columns=["StartLine", "EndLine"])
+    numberOfLines = sum(1 for i in gzip.open(master_wireless_path, 'rb'))
+    while nextLine < numberOfLines:
+        groupOFLinesDf.loc[len(groupOFLinesDf.index)] = [startLine, nextLine]
+        startLine = nextLine + 1
+        nextLine = nextLine + 1000000
+    groupOFLinesDf.loc[len(groupOFLinesDf.index)] = [startLine, numberOfLines]
+    with cf.ProcessPoolExecutor() as executorMaster:
+        for lineGroupParallel in groupOFLinesDf.itertuples():
+            startFrom = lineGroupParallel[1]
+            endAt = lineGroupParallel[2]
+            lineGroup = "from"+str(startFrom)+"to"+str(endAt)
+            linesJobsDic[lineGroup] = executorMaster.submit(LoadMasterLogs, startFrom, endAt, master_wireless_path)
+    executorMaster.shutdown(wait=true)
+    
     # ApUsageDf = pd.DataFrame(
     #     columns=["SiteId", "Date", "ApName", "ApMac", "Chanel", "Connections", "Clients", "Percent"])
     RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
                                            "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
     # brgApCountDf = pd.DataFrame(columns=["bridge", "ap", "countBriAp"])
-    df = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
-    with a_file as master_logs:
-        for log in master_logs:
-            currentRecordNo += 1
+    # df = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
+    # with currentFile as master_logs:
+    #     for log in master_logs:
+    #         currentRecordNo += 1
+    #         log = log.rstrip()
+    #         if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
+    #             eventsFound += 1
+    #             df = LoadRoamEvent(df, log)
+    #         elif "RSSI log entry" in log.decode('utf-8'):
+    #             apSeenEvent += 1
+    #             RssiLogEntryDf = LoadApUsage(log, RssiLogEntryDf)
+    #         print("current record %d Bot - AP correlation %d AP seen events %d" % (currentRecordNo, eventsFound,
+    #                                                                                apSeenEvent), end="\r")
+    # df["bridgeMac"] = df["bridgeMac"].str.upper()
+    # sortedDf = df.sort_values(by=["bridgeMac", "fromAp"])
+    # filePath = "eventsOfInterest.csv"
+    # filePath2 = "ApUsage.csv"
+    # if os.path.exists(filePath):
+    #     os.remove(filePath)
+    # sortedDf.to_csv(filePath, encoding='utf-8')
+    # if os.path.exists(filePath2):
+    #     os.remove(filePath2)
+    # RssiLogEntryDf.to_csv(filePath2, encoding='utf-8')
+    # display(df)
+
+
+def LoadMasterLogs(startFrom, endAt, master_wireless_path):
+    # RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
+    #                                        "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
+    Roamdf = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
+    with gzip.open(master_wireless_path) as currentFile:
+        while startFrom <= endAt:
+            log = linecache.getline(currentFile, startFrom)
             log = log.rstrip()
             if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
-                eventsFound += 1
-                df = LoadRoamEvent(df, log)
-            elif "RSSI log entry" in log.decode('utf-8'):
-                apSeenEvent += 1
-                RssiLogEntryDf = LoadApUsage(log, RssiLogEntryDf)
-            print("current record %d Bot - AP correlation %d AP seen events %d" % (currentRecordNo, eventsFound,
-                                                                                   apSeenEvent), end="\r")
-    df["bridgeMac"] = df["bridgeMac"].str.upper()
-    sortedDf = df.sort_values(by=["bridgeMac", "fromAp"])
-    filePath = "eventsOfInterest.csv"
-    filePath2 = "ApUsage.csv"
-    if os.path.exists(filePath):
-        os.remove(filePath)
-    sortedDf.to_csv(filePath, encoding='utf-8')
-    if os.path.exists(filePath2):
-        os.remove(filePath2)
-    RssiLogEntryDf.to_csv(filePath2, encoding='utf-8')
-    display(df)
+                LoadRoamEvent(Roamdf, log)
+            startFrom += 1
 
 
 def LoadApUsage(log, RssiLogEntryDf):
@@ -137,11 +158,7 @@ def LoadRoamEvent(df, log):
     bridgeMac = logInstanceListData[10].decode('utf-8')
     fromAp = logInstanceListData[14].decode('utf-8')
     toAp = logInstanceListData[17].decode('utf-8')
-    df0 = pd.DataFrame({"roamTimeAp": [roamTimeAp],
-                        "bridgeMac": [bridgeMac],
-                        "fromAp": [fromAp],
-                        "toAp": [toAp]})
-    df = pd.concat([df, df0], ignore_index=True)
+    df.loc[len(df.index)] = [roamTimeAp, bridgeMac, fromAp, toAp]
     return df
 
 
@@ -169,26 +186,56 @@ def DiscoReport():
     with cf.ProcessPoolExecutor() as executor:
         for filenameParallel in os.listdir(socketErrorDirectoryPath):
             currentFileBaseName = os.path.basename(filenameParallel)
-            fileExtension = pathlib.Path(filenameParallel).suffix
-            if "Client.Engine_" in currentFileBaseName and fileExtension != ".txt":
-                filesJobsDic[currentFileBaseName] = executor.submit(LoadEngineLogs, filenameParallel, socketErrorDirectoryPath) 
+            filesJobsDic[currentFileBaseName] = executor.submit(LoadEngineLogs, filenameParallel, socketErrorDirectoryPath)
+    executor.shutdown(wait=true)
     for dic in filesJobsDic:
         cosa = filesJobsDic.get(dic)
         cosa2 = cosa.result()
         dataFR = cosa2.get(dic)
         try:
-            for botDic in dataFR:
-                oraDf = dataFR.get(botDic)
-                if botDic in botHeartsDictionary.keys():
-                    botHeartsDictionary[botDic] = pd.concat([botHeartsDictionary.get(botDic), oraDf],
-                                                            ignore_index=True)
-                else:
-                    botHeartsDictionary[botDic] = oraDf
+            if dataFR != None:
+                for botDic in dataFR:
+                    oraDf = dataFR.get(botDic)
+                    if botDic in botHeartsDictionary.keys():
+                        botHeartsDictionary[botDic] = pd.concat([botHeartsDictionary.get(botDic), oraDf],
+                                                                ignore_index=True)
+                    else:
+                        botHeartsDictionary[botDic] = oraDf
         except Exception as e:
             print(e)
+    manager.stop()
+    if "BotSocketErrors" in botHeartsDictionary.keys():
+        disconnectCandidates = botHeartsDictionary.get("BotSocketErrors")
+        filterDisconnectsDf = disconnectCandidates.loc[(disconnectCandidates["DiscoType"] == "disconnect")]
+        filterFlickerDf = disconnectCandidates.loc[(disconnectCandidates["DiscoType"] == "flicker")]
+        filterRestartDf = disconnectCandidates.loc[(disconnectCandidates["DiscoType"] == "restart")]
+        frames = [filterDisconnectsDf, filterFlickerDf, filterRestartDf]
+        finalDisconnectReport = pd.concat(frames)
+        botHeartsDictionary["FilteredDisco"] = filterDisconnectsDf
+        botHeartsDictionary["FilteredFlicker"] = filterFlickerDf
+        botHeartsDictionary["FilteredRestart"] = filterRestartDf
+        for currentIndex in (finalDisconnectReport).index:
+            currentBot = finalDisconnectReport["AffectedBot"][currentIndex]
+            botsHealth = botHeartsDictionary[currentBot]
+            aliveMask = (botsHealth["EventTime"] > finalDisconnectReport["EventTime"][currentIndex]) & (botsHealth["EventTime"] < finalDisconnectReport["EndTime"][currentIndex]) & (botsHealth["Health"] == "healthy")
+            evidenceDf = botsHealth.loc[aliveMask]
+            aliveMask2 = (botsHealth["EventTime"] < finalDisconnectReport["EventTime"][currentIndex]) & (botsHealth["LastHealthyMoment"] > finalDisconnectReport["EndTime"][currentIndex]) & (botsHealth["Health"] == "healthy")
+            evidenceDf2 = botsHealth.loc[aliveMask2]
+            aliveMask3 = (botsHealth["EventTime"] < finalDisconnectReport["EventTime"][currentIndex]) & (botsHealth["LastHealthyMoment"] > finalDisconnectReport["EventTime"][currentIndex]) & (botsHealth["Health"] == "arrhythmia")
+            evidenceDf3 = botsHealth.loc[aliveMask3]
+            if len(evidenceDf) > 0 or len(evidenceDf2) > 0:
+                finalDisconnectReport.at[currentIndex, "IsWireless"] = "Not Wireless"
+            elif len(evidenceDf3) > 0:
+                finalDisconnectReport.at[currentIndex, "IsWireless"] = "Is Wireless"
+
+        botHeartsDictionary["DiscoReport"+yesterday_prefix] = finalDisconnectReport
+            
     for botDF in botHeartsDictionary:
         botToSort = botHeartsDictionary.get(botDF)
-        sortedBot = botToSort.sort_values(by=["EventTime"])
+        if(botDF == "BotSocketErrors" or botDF == "FilteredDisco" or botDF == "DiscoReport"+yesterday_prefix):
+            sortedBot = botToSort.sort_values(by=["DiscoType", "AffectedBot", "EventTime"])
+        else:
+            sortedBot = botToSort.sort_values(by=["EventTime"])
         createCsvFile(sortedBot, botDF)
 
 
@@ -202,8 +249,9 @@ def LoadEngineLogs(filename, socketErrorDirectoryPath):
             print("processing file ",fileExtension)
             filesDic[baseFileName] = BotHeartHealth(currentFile)
 
-        # if "Rover" in baseFileName and "Comms" in baseFileName and fileExtension == ".txt":
-        #     filesDic[baseFileName] = SocketErrors(currentFile)
+        if "Rover" in baseFileName and "Comms" in baseFileName and fileExtension == ".txt":
+            print("processing file ",baseFileName)
+            filesDic[baseFileName] = SocketErrors(currentFile)
     return filesDic
 
 
@@ -228,7 +276,7 @@ def BotHeartHealth(currentFile):
                     botOnHand = dataInRecord[9]
                 else:
                     botOnHand = dataInRecord[14]
-                dynamicDf = ("Bot" + str(botOnHand))
+                dynamicDf = ("BOT" + str(botOnHand))
                 if dynamicDf not in multyThreadDictionary:
                     if dataInRecord[8] == "Rover":
                         botOnHand = dataInRecord[9]
@@ -296,7 +344,6 @@ def BotHeartHealth(currentFile):
     except Exception as e:
         print(e)
     print("complite file " + fileExtension + "\n")
-    manager.stop()
     return  multyThreadDictionary
 
 
@@ -304,10 +351,17 @@ def SocketErrors(currentFile):
     multyThreadDictionary = {}
     suspiciousEventsFound = 0
     socketErrorFound = 0
+    numberOfLines = sum(1 for i in open(currentFile, 'rb'))
+    baseFileName = os.path.basename(currentFile)
+    discoType = "TBD"
+    isWireless = "TBD"
+    currentLineNo = 0
+    progressDictionary[baseFileName] = manager.counter(total=numberOfLines, desc="File " + baseFileName, unit="ticks", color="blue")
     try:
         with open(currentFile, "r") as inputFile:
             eventsBetween = 0
             for currentLine in inputFile:
+                (progressDictionary[baseFileName]).update()
                 if "OnReceive SocketError" in currentLine:
                     socketErrorFound = 1
                     eventsBetween += 1
@@ -328,18 +382,15 @@ def SocketErrors(currentFile):
                     if socketErrorFound:
                         lenOfDisco = endTime - startTime
                         totalSeconds = lenOfDisco.total_seconds()
-                        if totalSeconds < 5:
-                            discoType = "Connecting"
-                        elif 5 <= totalSeconds <= 20:
-                            discoType = "Flicket"
-                        elif 20 < totalSeconds <= 60:
-                            discoType = "Flicker"
-                        elif 60 < totalSeconds <= 120:
+                        # if totalSeconds < 5:
+                        #     discoType = "Connecting"
+                        if 5 <= totalSeconds <= 25:
+                            discoType = "flicker"
+                        elif 25 < totalSeconds <= 60:
                             discoType = "disconnect"
-                        elif totalSeconds > 120:
+                        elif totalSeconds > 60:
                             discoType = "restart"
-                        else:
-                            discoType = "indeterminate"
+
                     else:
                         totalSeconds = 0
                         discoType = "Orphan Connection Established"
@@ -348,7 +399,7 @@ def SocketErrors(currentFile):
                         disconnectThread = reconnectThread
                         logType = dataInRecord[6]
                         typeOfError = "none"
-                    LoadDf(affectedBot, multyThreadDictionary, discoType, disconnectThread, endTime, eventsBetween, logType,
+                    LoadDf(affectedBot, multyThreadDictionary, discoType, isWireless, disconnectThread, endTime, eventsBetween, logType,
                         reconnectThread, startTime, totalSeconds, typeOfError)
                     # print("disco found for " + affectedBot, end="\r")
                     eventsBetween = 0
@@ -365,25 +416,25 @@ def SocketErrors(currentFile):
         totalSeconds = 0
         typeOfError = "Unknown"
         discoType = "Orphan error"
-        LoadDf(affectedBot, multyThreadDictionary, discoType, disconnectThread, endTime, eventsBetween, logType,
+        LoadDf(affectedBot, multyThreadDictionary, discoType, isWireless, disconnectThread, endTime, eventsBetween, logType,
                reconnectThread, startTime, totalSeconds, typeOfError)
     # botHeartsDictionary["BotSocketErrors"] = botHeartsDictionary["BotSocketErrors"].sort_values(by=["AffectedBot",
     #                                                                                                "StartTime"])
     return multyThreadDictionary
 
 
-def LoadDf(affectedBot, botHeartsDictionary, discoType, disconnectThread, endTime, eventsBetween, logType,
+def LoadDf(affectedBot, botHeartsDictionary, discoType, isWireless, disconnectThread, endTime, eventsBetween, logType,
            reconnectThread, startTime, totalSeconds, typeOfError):
     if "BotSocketErrors" not in botHeartsDictionary:
-        newDic = {"AffectedBot": [affectedBot], "StartTime": [startTime],
+        newDic = {"AffectedBot": [affectedBot], "EventTime": [startTime],
                   "DisconnectThread": [disconnectThread], "LogType": [logType],
                   "TypeOfError": [typeOfError], "EndTime": [endTime], "ReconnectThread": [reconnectThread],
-                  "LenOfDisco": [totalSeconds], "DiscoType": [discoType], "EventsBetween": eventsBetween}
+                  "LenOfDisco": [totalSeconds], "DiscoType": [discoType], "IsWireless": isWireless, "EventsBetween": eventsBetween}
         botHeartsDictionary["BotSocketErrors"] = pd.DataFrame(newDic)
     else:
         (botHeartsDictionary["BotSocketErrors"]).loc[len((botHeartsDictionary["BotSocketErrors"]).index)] \
             = [affectedBot, startTime, disconnectThread, logType, typeOfError, endTime, reconnectThread,
-               totalSeconds, discoType, eventsBetween]
+               totalSeconds, discoType, isWireless, eventsBetween]
 
 
 def ParseTime(logInstanceListData):
