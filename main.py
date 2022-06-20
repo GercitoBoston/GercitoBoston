@@ -1,6 +1,8 @@
 from fileinput import filename
 import os.path
+import shutil
 import subprocess
+from zipfile import ZipFile
 import pandas as pd
 import gzip
 import datetime
@@ -14,6 +16,7 @@ import time
 import threading
 import re
 import linecache
+from itertools import islice
 from flask import Flask
 from flask_restful import Resource, Api, reqparse
 from datetime import timedelta
@@ -24,6 +27,7 @@ from os import listdir
 from os.path import isfile, join
 from pandasql import sqldf
 from sqlalchemy import true
+from yaml import MarkedYAMLError
 
 from Classes.ConnectionMatrix import ConnectionMatrix
 
@@ -61,22 +65,38 @@ def GetApBotConnectionMatrix():
     apSeenEvent = 0
     currentRecordNo = 0
     linesJobsDic = {}
-    startLine = 1
+    startLine = 0
     nextLine = 1000000
+    numberOfLines = 0
     groupOFLinesDf = pd.DataFrame(columns=["StartLine", "EndLine"])
-    numberOfLines = sum(1 for i in gzip.open(master_wireless_path, 'rb'))
+    with gzip.open(master_wireless_path, "rb") as myzip:
+        with open('master_wireless.txt', "wb") as openFile:
+            print("Uncompressing master_wireless", end='\r')
+            shutil.copyfileobj(myzip, openFile)
+    with open('master_wireless.txt', "rb") as openFile:
+        # numberOfLines = sum(1 for i in openFile)
+        for record in openFile:
+            numberOfLines += 1
+            print("Records = ", numberOfLines, end='\r')
+    # with gzip.open(master_wireless_path, "rt") as openFile:
+    #     cosa2 = islice(openFile, startFrom, endAt)
+    #     log = linecache.getline(openFile, 1)
+    #     numberOfLines = sum(1 for i in openFile)
+    # numberOfLines = sum(1 for i in gzip.open(master_wireless_path, 'rb'))
     while nextLine < numberOfLines:
         groupOFLinesDf.loc[len(groupOFLinesDf.index)] = [startLine, nextLine]
         startLine = nextLine + 1
         nextLine = nextLine + 1000000
     groupOFLinesDf.loc[len(groupOFLinesDf.index)] = [startLine, numberOfLines]
     with cf.ProcessPoolExecutor() as executorMaster:
-        for lineGroupParallel in groupOFLinesDf.itertuples():
-            startFrom = lineGroupParallel[1]
-            endAt = lineGroupParallel[2]
-            lineGroup = "from"+str(startFrom)+"to"+str(endAt)
-            linesJobsDic[lineGroup] = executorMaster.submit(LoadMasterLogs, startFrom, endAt, master_wireless_path)
+        with open('master_wireless.txt', "rb") as openFile:
+            for lineGroupParallel in groupOFLinesDf.itertuples():
+                startFrom = lineGroupParallel[1]
+                endAt = lineGroupParallel[2]
+                lineGroup = "from"+str(startFrom)+"to"+str(endAt)
+                linesJobsDic[lineGroup] = executorMaster.submit(LoadMasterLogs, startFrom, endAt, openFile)
     executorMaster.shutdown(wait=true)
+    cosaFinal = linesJobsDic
     
     # ApUsageDf = pd.DataFrame(
     #     columns=["SiteId", "Date", "ApName", "ApMac", "Chanel", "Connections", "Clients", "Percent"])
@@ -109,17 +129,19 @@ def GetApBotConnectionMatrix():
     # display(df)
 
 
-def LoadMasterLogs(startFrom, endAt, master_wireless_path):
+def LoadMasterLogs(startFrom, endAt, openFile):
     # RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
     #                                        "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
     Roamdf = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
-    with gzip.open(master_wireless_path) as currentFile:
-        while startFrom <= endAt:
-            log = linecache.getline(currentFile, startFrom)
-            log = log.rstrip()
-            if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
-                LoadRoamEvent(Roamdf, log)
-            startFrom += 1
+    nextMillionLines = list(islice(openFile, startFrom, endAt))
+    for log in nextMillionLines:
+    # while startFrom <= endAt:
+        # log = linecache.getline(currentFile, startFrom)
+        log = log.rstrip()
+        if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
+            LoadRoamEvent(Roamdf, log)
+        # startFrom += 1
+    return Roamdf
 
 
 def LoadApUsage(log, RssiLogEntryDf):
