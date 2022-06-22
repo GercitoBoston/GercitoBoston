@@ -53,6 +53,24 @@ menu_options = {
 }
 
 
+def LoadMasterLogs(startFrom, endAt, openFile):
+    # RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
+    #                                        "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
+    Roamdf = pd.DataFrame(columns=["roamTimeAp", "roamTimeController", "bridgeMac", "fromAp", "toAp"])
+    RoamdfReasondf = pd.DataFrame(columns=["roamTimeAp", "roamTimeController", "bridge", "bridgeMac", "fromApMac", "toApMac", "fromRSSI", "toRSSI", "RSSIGain", "reasonWhy"])
+    nextMillionLines = list(islice(openFile, startFrom, endAt))
+
+    for log in nextMillionLines:
+    # while startFrom <= endAt:
+        # log = linecache.getline(currentFile, startFrom)
+        log = log.rstrip()
+        if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
+            LoadRoamEvent(Roamdf, log)
+        elif b"Roamed from" in log:
+            LoadRoamEventReason(Roamdf, log)
+        # startFrom += 1
+    print("done from " + str(startFrom) + " to " + str(endAt))
+    return Roamdf
 
 
 def GetApBotConnectionMatrix():
@@ -71,13 +89,15 @@ def GetApBotConnectionMatrix():
     groupOFLinesDf = pd.DataFrame(columns=["StartLine", "EndLine"])
     with gzip.open(master_wireless_path, "rb") as myzip:
         with open('master_wireless.txt', "wb") as openFile:
-            print("Uncompressing master_wireless", end='\r')
+            print("Uncompressed master_wireless", end='\r')
             shutil.copyfileobj(myzip, openFile)
+    print("\n")
+    print("Getting number of records")
     with open('master_wireless.txt', "rb") as openFile:
+        numberOfLines = len(openFile.readlines())
+    print("\n")
+    print("Records = ", numberOfLines, end='\r')
         # numberOfLines = sum(1 for i in openFile)
-        for record in openFile:
-            numberOfLines += 1
-            print("Records = ", numberOfLines, end='\r')
     # with gzip.open(master_wireless_path, "rt") as openFile:
     #     cosa2 = islice(openFile, startFrom, endAt)
     #     log = linecache.getline(openFile, 1)
@@ -88,15 +108,26 @@ def GetApBotConnectionMatrix():
         startLine = nextLine + 1
         nextLine = nextLine + 1000000
     groupOFLinesDf.loc[len(groupOFLinesDf.index)] = [startLine, numberOfLines]
-    with cf.ProcessPoolExecutor() as executorMaster:
-        with open('master_wireless.txt', "rb") as openFile:
-            for lineGroupParallel in groupOFLinesDf.itertuples():
+    with open('master_wireless.txt', "rb") as openFile:
+        for lineGroupParallel in groupOFLinesDf.itertuples():
                 startFrom = lineGroupParallel[1]
                 endAt = lineGroupParallel[2]
                 lineGroup = "from"+str(startFrom)+"to"+str(endAt)
-                linesJobsDic[lineGroup] = executorMaster.submit(LoadMasterLogs, startFrom, endAt, openFile)
-    executorMaster.shutdown(wait=true)
-    cosaFinal = linesJobsDic
+                print("\n")
+                print("processing from " + str(startFrom) + " to " + str(endAt))
+                linesJobsDic[lineGroup] = LoadMasterLogs(startFrom, endAt, openFile)
+        # with cf.ProcessPoolExecutor() as executor:
+        #     for lineGroupParallel in groupOFLinesDf.itertuples():
+        #         startFrom = lineGroupParallel[1]
+        #         endAt = lineGroupParallel[2]
+        #         lineGroup = "from"+str(startFrom)+"to"+str(endAt)
+        #         print("\n")
+        #         print("processing from " + str(startFrom) + " to " + str(endAt))
+        #         linesJobsDic[lineGroup] = executor.submit(LoadMasterLogs, startFrom, endAt, openFile)
+    # executor.shutdown(wait=true)
+    df = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
+    for currentDic in linesJobsDic:
+        df = pd.concat([df, linesJobsDic.get(currentDic)], ignore_index=True)
     
     # ApUsageDf = pd.DataFrame(
     #     columns=["SiteId", "Date", "ApName", "ApMac", "Chanel", "Connections", "Clients", "Percent"])
@@ -116,37 +147,22 @@ def GetApBotConnectionMatrix():
     #             RssiLogEntryDf = LoadApUsage(log, RssiLogEntryDf)
     #         print("current record %d Bot - AP correlation %d AP seen events %d" % (currentRecordNo, eventsFound,
     #                                                                                apSeenEvent), end="\r")
-    # df["bridgeMac"] = df["bridgeMac"].str.upper()
-    # sortedDf = df.sort_values(by=["bridgeMac", "fromAp"])
-    # filePath = "eventsOfInterest.csv"
+    df["bridgeMac"] = df["bridgeMac"].str.upper()
+    sortedDf = df.sort_values(by=["bridgeMac", "fromAp"])
+    filePath = "ApBotConnectionMatrix.csv"
     # filePath2 = "ApUsage.csv"
-    # if os.path.exists(filePath):
-    #     os.remove(filePath)
-    # sortedDf.to_csv(filePath, encoding='utf-8')
+    if os.path.exists(filePath):
+        os.remove(filePath)
+    sortedDf.to_csv(filePath, encoding='utf-8')
     # if os.path.exists(filePath2):
     #     os.remove(filePath2)
     # RssiLogEntryDf.to_csv(filePath2, encoding='utf-8')
     # display(df)
 
 
-def LoadMasterLogs(startFrom, endAt, openFile):
-    # RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
-    #                                        "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
-    Roamdf = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
-    nextMillionLines = list(islice(openFile, startFrom, endAt))
-    for log in nextMillionLines:
-    # while startFrom <= endAt:
-        # log = linecache.getline(currentFile, startFrom)
-        log = log.rstrip()
-        if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
-            LoadRoamEvent(Roamdf, log)
-        # startFrom += 1
-    return Roamdf
-
-
 def LoadApUsage(log, RssiLogEntryDf):
     logInstanceListData = log.split()
-    currentDate = ParseTime(logInstanceListData)
+    currentDate = ParseTime(logInstanceListData, 0)
     brgBotLoc = (logInstanceListData[2].decode('utf-8')).split(".")
     SerialNumber = brgBotLoc[0]
     botType = brgBotLoc[1]
@@ -176,11 +192,43 @@ def LoadApUsage(log, RssiLogEntryDf):
 
 def LoadRoamEvent(df, log):
     logInstanceListData = log.split()
-    roamTimeAp = ParseTime(logInstanceListData)
+    roamTimeAp = ParseTime(logInstanceListData, 0)
+    roamTimeController = ParseTime(logInstanceListData, 1)
     bridgeMac = logInstanceListData[10].decode('utf-8')
     fromAp = logInstanceListData[14].decode('utf-8')
     toAp = logInstanceListData[17].decode('utf-8')
-    df.loc[len(df.index)] = [roamTimeAp, bridgeMac, fromAp, toAp]
+    df.loc[len(df.index)] = [roamTimeAp, roamTimeController, bridgeMac, fromAp, toAp]
+    return df
+
+
+def FindBetween( characters, first, last ):
+    try:
+        start = characters.index( first ) + len( first )
+        end = characters.index( last, start )
+        return characters[start:end]
+    except ValueError as e:
+        print(e)
+        return ""
+
+
+def LoadRoamEventReason(df, log):
+    logInstanceListData = log.split()
+    roamTimeAp = ParseTime(logInstanceListData, 0)
+    roamTimeController = ParseTime(logInstanceListData, 1)
+    bridge = logInstanceListData[2].decode('utf-8')
+    bridgeMac = logInstanceListData[4].decode('utf-8')
+    fromCombo = logInstanceListData[7].decode('utf-8') + logInstanceListData[8].decode('utf-8')
+    fromRSSI = (FindBetween(fromCombo, "(", ")"))[5:]
+    fromApMac = fromCombo[:-10]
+    toCombo = logInstanceListData[11].decode('utf-8') + logInstanceListData[12].decode('utf-8')
+    toRSSI = (FindBetween(toCombo, "(", ")"))[5:]
+    toApMac = toCombo[:-10]
+    RSSIGain = int(toRSSI) - int(fromRSSI)
+    reasonWhy = ""
+    for currentWord in range(13, len(logInstanceListData)):
+        reasonWhy = reasonWhy + " " + logInstanceListData[currentWord].decode('utf-8')
+    reasonWhy = reasonWhy + logInstanceListData[17].decode('utf-8')
+    df.loc[len(df.index)] = [roamTimeAp, roamTimeController, bridge, bridgeMac, fromApMac, toApMac, fromRSSI, toRSSI, RSSIGain, reasonWhy]
     return df
 
 
@@ -459,8 +507,8 @@ def LoadDf(affectedBot, botHeartsDictionary, discoType, isWireless, disconnectTh
                totalSeconds, discoType, isWireless, eventsBetween]
 
 
-def ParseTime(logInstanceListData):
-    dtAp = ((logInstanceListData[0].decode('utf-8')).replace('T', ' '))[:-6]
+def ParseTime(logInstanceListData, curentIndex):
+    dtAp = ((logInstanceListData[curentIndex].decode('utf-8')).replace('T', ' '))[:-6]
     roamTimeAp = datetime.datetime.strptime(dtAp, "%Y-%m-%d %H:%M:%S.%f")
     return roamTimeAp
 
