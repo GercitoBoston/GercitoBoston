@@ -54,10 +54,11 @@ menu_options = {
 
 
 def LoadMasterLogs(startFrom, endAt, openFile):
+    roamDic = {}
     # RssiLogEntryDf = pd.DataFrame(columns=["currentDate", "SerialNumber", "botType", "currentLocation",
     #                                        "BrgMac", "ApMac", "RSSI", "SNR", "chanel"])
-    Roamdf = pd.DataFrame(columns=["roamTimeAp", "roamTimeController", "bridgeMac", "fromAp", "toAp"])
-    RoamdfReasondf = pd.DataFrame(columns=["roamTimeAp", "roamTimeController", "bridge", "bridgeMac", "fromApMac", "toApMac", "fromRSSI", "toRSSI", "RSSIGain", "reasonWhy"])
+    Roamdf = pd.DataFrame(columns=["roamTimeBridge", "roamTimeAp", "lagTime", "bridgeMac", "fromAp", "toAp"])
+    RoamdfReasondf = pd.DataFrame(columns=["roamTimeBridge", "roamTimeAp", "lagTime", "bridge", "bridgeMac", "fromApMac", "toApMac", "fromRSSI", "toRSSI", "RSSIGain", "reasonWhy"])
     nextMillionLines = list(islice(openFile, startFrom, endAt))
 
     for log in nextMillionLines:
@@ -65,12 +66,12 @@ def LoadMasterLogs(startFrom, endAt, openFile):
         # log = linecache.getline(currentFile, startFrom)
         log = log.rstrip()
         if b"<501065>" in log and b"Client" in log and b"moved from AP" in log:
-            LoadRoamEvent(Roamdf, log)
+            roamDic["LoadRoamEvent"] = LoadRoamEvent(Roamdf, log)
         elif b"Roamed from" in log:
-            LoadRoamEventReason(Roamdf, log)
+            roamDic["LoadRoamEventReason"] = LoadRoamEventReason(RoamdfReasondf, log)
         # startFrom += 1
     print("done from " + str(startFrom) + " to " + str(endAt))
-    return Roamdf
+    return roamDic
 
 
 def GetApBotConnectionMatrix():
@@ -125,9 +126,20 @@ def GetApBotConnectionMatrix():
         #         print("processing from " + str(startFrom) + " to " + str(endAt))
         #         linesJobsDic[lineGroup] = executor.submit(LoadMasterLogs, startFrom, endAt, openFile)
     # executor.shutdown(wait=true)
-    df = pd.DataFrame(columns=["roamTimeAp", "bridgeMac", "fromAp", "toAp"])
-    for currentDic in linesJobsDic:
-        df = pd.concat([df, linesJobsDic.get(currentDic)], ignore_index=True)
+    df = pd.DataFrame(columns=["roamTimeBridge", "roamTimeAp", "lagTime", "bridgeMac", "fromAp", "toAp"])
+    RoamdfReasondf = pd.DataFrame(columns=["roamTimeBridge", "roamTimeAp", "lagTime", "bridge", "bridgeMac", "fromApMac", "toApMac", "fromRSSI", "toRSSI", "RSSIGain", "reasonWhy"])
+    roamByBotDic = {}
+    for currentDicDic in linesJobsDic:
+        for currentDic in linesJobsDic.get(currentDicDic):
+            if currentDic == "LoadRoamEventReason":
+                actualDF = (linesJobsDic.get(currentDicDic)).get(currentDic)
+                RoamdfReasondf = pd.concat([RoamdfReasondf, actualDF], ignore_index=true)
+                sortedReasonDf = RoamdfReasondf.sort_values(by=["bridge", "roamTimeAp"])
+                for bridge, group in sortedReasonDf.groupby("bridge"):
+                    roamByBotDic['RoamFor' + (str(bridge))[:-(len(bridge) - 8)]] = group
+            elif(currentDic == "LoadRoamEvent"):
+                actualDF = (linesJobsDic.get(currentDicDic)).get(currentDic)
+                df = pd.concat([df, actualDF], ignore_index=True)
     
     # ApUsageDf = pd.DataFrame(
     #     columns=["SiteId", "Date", "ApName", "ApMac", "Chanel", "Connections", "Clients", "Percent"])
@@ -154,6 +166,20 @@ def GetApBotConnectionMatrix():
     if os.path.exists(filePath):
         os.remove(filePath)
     sortedDf.to_csv(filePath, encoding='utf-8')
+    filePath = "ApBotRoamReason.csv"
+    sortedReasonDf = RoamdfReasondf.sort_values(by=["bridge", "roamTimeAp"])
+    #filePath = "ApBotConnectionMatrix.csv"
+    # filePath2 = "ApUsage.csv"
+    if os.path.exists(filePath):
+        os.remove(filePath)
+    sortedReasonDf.to_csv(filePath, encoding='utf-8')
+    for roamForBotReason in roamByBotDic:
+        ActualBotForReasonDF = roamByBotDic.get(roamForBotReason)
+        filePath = roamForBotReason + ".csv"
+        if os.path.exists(roamForBotReason):
+            os.remove(roamForBotReason)
+        ActualBotForReasonDF.to_csv(filePath, encoding='utf-8')
+
     # if os.path.exists(filePath2):
     #     os.remove(filePath2)
     # RssiLogEntryDf.to_csv(filePath2, encoding='utf-8')
@@ -192,12 +218,13 @@ def LoadApUsage(log, RssiLogEntryDf):
 
 def LoadRoamEvent(df, log):
     logInstanceListData = log.split()
-    roamTimeAp = ParseTime(logInstanceListData, 0)
-    roamTimeController = ParseTime(logInstanceListData, 1)
+    roamTimeBridge = ParseTime(logInstanceListData, 0)
+    roamTimeAp = ParseTime(logInstanceListData, 1)
+    lagTime = (roamTimeBridge - roamTimeAp).total_seconds()
     bridgeMac = logInstanceListData[10].decode('utf-8')
     fromAp = logInstanceListData[14].decode('utf-8')
     toAp = logInstanceListData[17].decode('utf-8')
-    df.loc[len(df.index)] = [roamTimeAp, roamTimeController, bridgeMac, fromAp, toAp]
+    df.loc[len(df.index)] = [roamTimeBridge, roamTimeAp, lagTime, bridgeMac, fromAp, toAp]
     return df
 
 
@@ -211,10 +238,11 @@ def FindBetween( characters, first, last ):
         return ""
 
 
-def LoadRoamEventReason(df, log):
+def LoadRoamEventReason(RoamdfReasondf, log):
     logInstanceListData = log.split()
-    roamTimeAp = ParseTime(logInstanceListData, 0)
-    roamTimeController = ParseTime(logInstanceListData, 1)
+    roamTimeBridge = ParseTime(logInstanceListData, 0)
+    roamTimeAp = ParseTime(logInstanceListData, 1)
+    lagTime = (roamTimeBridge - roamTimeAp).total_seconds()
     bridge = logInstanceListData[2].decode('utf-8')
     bridgeMac = logInstanceListData[4].decode('utf-8')
     fromCombo = logInstanceListData[7].decode('utf-8') + logInstanceListData[8].decode('utf-8')
@@ -223,13 +251,13 @@ def LoadRoamEventReason(df, log):
     toCombo = logInstanceListData[11].decode('utf-8') + logInstanceListData[12].decode('utf-8')
     toRSSI = (FindBetween(toCombo, "(", ")"))[5:]
     toApMac = toCombo[:-10]
-    RSSIGain = int(toRSSI) - int(fromRSSI)
+    RSSIGain = abs(int(toRSSI)) - abs(int(fromRSSI))
     reasonWhy = ""
     for currentWord in range(13, len(logInstanceListData)):
         reasonWhy = reasonWhy + " " + logInstanceListData[currentWord].decode('utf-8')
     reasonWhy = reasonWhy + logInstanceListData[17].decode('utf-8')
-    df.loc[len(df.index)] = [roamTimeAp, roamTimeController, bridge, bridgeMac, fromApMac, toApMac, fromRSSI, toRSSI, RSSIGain, reasonWhy]
-    return df
+    RoamdfReasondf.loc[len(RoamdfReasondf.index)] = [roamTimeBridge, roamTimeAp, lagTime, bridge, bridgeMac, fromApMac, toApMac, fromRSSI, toRSSI, RSSIGain, reasonWhy]
+    return RoamdfReasondf
 
 
 def CheckApUsage():
@@ -432,6 +460,13 @@ def SocketErrors(currentFile):
             eventsBetween = 0
             for currentLine in inputFile:
                 (progressDictionary[baseFileName]).update()
+                if "<==" in currentLine and "- INFO -" in currentLine and "Dynamic" in currentLine:
+                    dataInRecord = currentLine.split()
+                    thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                    startTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
+                    xPos = (dataInRecord[20])[:-1]
+                    yPos = dataInRecord[21]
+                    ang = dataInRecord[24]
                 if "OnReceive SocketError" in currentLine:
                     socketErrorFound = 1
                     eventsBetween += 1
