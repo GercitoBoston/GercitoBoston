@@ -28,8 +28,10 @@ from os.path import isfile, join
 from pandasql import sqldf
 from sqlalchemy import true
 from yaml import MarkedYAMLError
-
 from Classes.ConnectionMatrix import ConnectionMatrix
+from Controllers.GetBotsOnTestStands import LoadBotsOnTestStands
+from Utils.GetPathForLogs import GetPathForLogs
+from Utils.YesterdayPrefix import YesterdayPrefix
 
 logger_format = '%(asctime)s:%(threadName)s:%(message)s'
 logging.basicConfig(format=logger_format, level=logging.INFO, datefmt="%H:%M:%S")
@@ -39,17 +41,18 @@ global filesDic
 app = Flask(__name__)
 api = Api(app)
 
-
+yesterday_prefix = YesterdayPrefix()
 
 menu_options = {
-    1: 'Get AP-BOT connection Matrix',
-    2: 'Get BI AP Master',
-    3: 'Get BI Bot Master',
-    4: 'Check AP Usage',
-    5: 'DiscoReport',
-    6: 'Get Roaming by BOT',
-    7: 'Get Roaming from AP',
-    8: 'Exit',
+    1: "Get AP-BOT connection Matrix",
+    2: "Get BI AP Master",
+    3: "Get BI Bot Master",
+    4: "Check AP Usage",
+    5: "DiscoReport",
+    6: "Get Roaming by BOT",
+    7: "Get Roaming from AP",
+    8: "Get Bots In Test Stans",
+    9: 'Exit',
 }
 
 
@@ -75,11 +78,7 @@ def LoadMasterLogs(startFrom, endAt, openFile):
 
 
 def GetApBotConnectionMatrix():
-    # today_date = datetime.date.today()
-    today_date = datetime.datetime(2022, 4, 30)
-    yesterday = today_date - timedelta(days=1)
-    yesterday_prefix = yesterday.strftime("%Y%m%d")
-    master_wireless_path = Path("/logs/wireless/" + yesterday_prefix + "/master_wireless.log.gz")
+    master_wireless_path = GetPathForLogs("beth", "master_wireless")
     eventsFound = 0
     apSeenEvent = 0
     currentRecordNo = 0
@@ -273,11 +272,7 @@ def createCsvFile(param, botDF):
 
 
 def DiscoReport():
-    # today_date = datetime.date.today()
-    today_date = datetime.datetime(2022, 4, 30)
-    yesterday = today_date - timedelta(days=1)
-    yesterday_prefix = yesterday.strftime("%Y-%m-%d")
-    socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix)
+    socketErrorDirectoryPath = GetPathForLogs("beth", "DiscoReport")
     # socketErrorDirectoryPath = Path("/mnt/nas/SRE01/RoverServices/JustForTesting")
     botHeartsDictionary = {}
     filesJobsDic = {}
@@ -463,10 +458,15 @@ def SocketErrors(currentFile):
                 if "<==" in currentLine and "- INFO -" in currentLine and "Dynamic" in currentLine:
                     dataInRecord = currentLine.split()
                     thisDateTime = (((join(dataInRecord[0], dataInRecord[1])).strip()).replace(",", "."))[:-3]
+                    secondTime = ((join(dataInRecord[0], dataInRecord[13])).strip())
                     startTime = datetime.datetime.strptime(thisDateTime, "%Y-%m-%d/%H:%M:%S.%f")
                     xPos = (dataInRecord[20])[:-1]
                     yPos = dataInRecord[21]
                     ang = dataInRecord[24]
+                    Bot = (dataInRecord[8])[1:-1]
+                    mVolts = dataInRecord[30]
+                    mmSeg = dataInRecord[27]
+                    RSSI = "cosa"
                 if "OnReceive SocketError" in currentLine:
                     socketErrorFound = 1
                     eventsBetween += 1
@@ -577,6 +577,12 @@ def GetArubaWlcInventory():
         print("I knew it")
 
 
+def CallGetBotsOnTestStand():
+    botsOnTestPath = GetPathForLogs("beth", "DiscoReport")
+    status = LoadBotsOnTestStands(botsOnTestPath)
+    print(status)
+
+
 def GetBotBrgSafInventory():
     try:
         with open('get_bot_brg_saf_inventory.sh', 'rb') as file:
@@ -612,6 +618,8 @@ if __name__ == '__main__':
         elif option == 7:
             RoamedFromApFrequency()
         elif option == 8:
+            CallGetBotsOnTestStand()
+        elif option == 9:
             print('Thanks')
             exit()
         else:

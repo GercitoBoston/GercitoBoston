@@ -5,6 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: sudo SUB",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "subProcess": true,
+            "justMyCode": true,
+            "sudo": true
+        },
+        {
+            "name": "Python: SUDO",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "sudo": true
+        },
+        {
             "name": "Python: With Libs",
             "type": "python",
             "request": "launch",
