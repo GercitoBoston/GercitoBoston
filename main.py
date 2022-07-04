@@ -2,6 +2,7 @@ from fileinput import filename
 import os.path
 import shutil
 import subprocess
+import sys
 from zipfile import ZipFile
 import pandas as pd
 import gzip
@@ -42,6 +43,7 @@ app = Flask(__name__)
 api = Api(app)
 
 yesterday_prefix = YesterdayPrefix()
+print(sys.path)
 
 menu_options = {
     1: "Get AP-BOT connection Matrix",
