@@ -11,9 +11,8 @@ def GetPathForLogs(currentSite, logFile):
         yesterday_prefix = YesterdayPrefix
         currentPath = Path("/logs/wireless/" + yesterday_prefix + "/master_wireless.log.gz")
     elif currentSite == "beth" and logFile == "DiscoReport":
-         # today_date = datetime.date.today()
-        today_date = datetime.datetime(2022, 4, 30)
+        today_date = datetime.date.today()
         yesterday = today_date - timedelta(days=1)
         yesterday_prefix = yesterday.strftime("%Y-%m-%d")
-        currentPath = Path("/mnt/nas/SRE01/RoverServices/" + yesterday_prefix)
+        currentPath = Path("/mnt/sre01/RoverServices/" + yesterday_prefix + "/")
     return currentPath

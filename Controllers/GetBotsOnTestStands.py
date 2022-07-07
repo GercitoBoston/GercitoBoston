@@ -14,6 +14,10 @@ from Utils.YesterdayPrefix import YesterdayPrefix
 def LoadBotsOnTestStands(currentPath):
     standDic = {}
     with cf.ProcessPoolExecutor() as executor:
+        if os.path.isdir(currentPath):
+            print("correct dir")
+        else:
+            print("bad dir")
         for filenameParallel in os.listdir(currentPath):
             absolutePath = os.path.join(currentPath, filenameParallel)
             currentFileBaseName = os.path.basename(absolutePath)
